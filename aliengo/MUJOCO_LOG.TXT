@@ -1,0 +1,57 @@
+Thu Oct 30 18:09:21 2025
+ERROR: Could not allocate memory
+
+Thu Oct 30 18:09:30 2025
+ERROR: Could not allocate memory
+
+Thu Oct 30 18:09:42 2025
+ERROR: Could not allocate memory
+
+Thu Oct 30 18:10:22 2025
+ERROR: Could not allocate memory
+
+Mon Nov  3 19:24:48 2025
+WARNING: Nan, Inf or huge value in QACC at DOF 4. The simulation is unstable. Time = 0.3110.
+
+Mon Nov  3 21:52:14 2025
+WARNING: Nan, Inf or huge value in QACC at DOF 3. The simulation is unstable. Time = 0.6090.
+
+Mon Nov  3 22:48:36 2025
+ERROR: Auxiliary framebuffer is not complete, error 0x8cd6
+
+Mon Nov  3 22:48:46 2025
+ERROR: Auxiliary framebuffer is not complete, error 0x8cd6
+
+Mon Nov  3 22:49:38 2025
+ERROR: Could not allocate memory
+
+Mon Nov  3 23:56:56 2025
+WARNING: Nan, Inf or huge value in QACC at DOF 7. The simulation is unstable. Time = 0.4970.
+
+Tue Nov  4 00:01:47 2025
+WARNING: Nan, Inf or huge value in QACC at DOF 0. The simulation is unstable. Time = 0.6030.
+
+Tue Nov  4 00:02:05 2025
+WARNING: Nan, Inf or huge value in QACC at DOF 0. The simulation is unstable. Time = 0.6030.
+
+Tue Nov  4 00:23:08 2025
+WARNING: Nan, Inf or huge value in QACC at DOF 0. The simulation is unstable. Time = 1.2440.
+
+Tue Nov  4 15:45:13 2025
+WARNING: Nan, Inf or huge value in QACC at DOF 3. The simulation is unstable. Time = 0.3960.
+
+Tue Nov  4 15:45:30 2025
+WARNING: Nan, Inf or huge value in QACC at DOF 5. The simulation is unstable. Time = 0.4560.
+
+Wed Nov  5 17:19:10 2025
+ERROR: Could not allocate memory
+
+Wed Nov  5 17:20:14 2025
+ERROR: Could not allocate memory
+
+Wed Nov  5 17:20:25 2025
+ERROR: Could not allocate memory
+
+Wed Nov  5 17:20:36 2025
+ERROR: Could not allocate memory
+
