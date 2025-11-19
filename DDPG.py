@@ -6,7 +6,6 @@ from tensorflow.keras import layers
 import random
 from collections import deque
 
-
 # ============================================
 # Replay Buffer
 # ============================================
@@ -226,3 +225,24 @@ class DDPGAgent:
 
     def reset_noise(self):
         self.noise.reset()
+
+    # ----------------------------------------
+    # Save actor / critic
+    # ----------------------------------------
+    def save(self, actor_path="actor.weights.h5", critic_path="critic.weights.h5"):
+        self.actor.save_weights(actor_path)
+        self.critic.save_weights(critic_path)
+        print("[INFO] Actor/Critic saved.")
+
+    # ----------------------------------------
+    # Load actor / critic
+    # ----------------------------------------
+    def load(self, actor_path="actor.weights.h5", critic_path="critic.weights.h5"):
+        self.actor.load_weights(actor_path)
+        self.critic.load_weights(critic_path)
+
+        # Target networks sync
+        self.actor_target.set_weights(self.actor.get_weights())
+        self.critic_target.set_weights(self.critic.get_weights())
+
+        print("[INFO] Actor/Critic loaded.")

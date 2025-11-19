@@ -1,4 +1,4 @@
-<mujoco model="aligeno">
+<mujoco model="aligengo">
     <compiler angle="radian" meshdir="meshes"/>
     <size njmax="5000" nconmax="10000"/>
 
@@ -35,6 +35,8 @@
         <material name="matgeom" reflectance="0.0"/>
     </asset>
     <option timestep="0.001"/>
+
+
 
 
     <worldbody>
