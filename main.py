@@ -1,22 +1,146 @@
 import numpy as np
-from DDPG import DDPGAgent    
-from aliengo_env import AliengoEnv
+import argparse
 import matplotlib.pyplot as plt
 import mujoco
 from mujoco import viewer
 import os
+from DDPG import DDPGAgent
+from aliengo_env import AliengoEnv
+import csv
+
 os.makedirs("saved_models", exist_ok=True)
-"""
-학습을 위한 main.py 코드
-"""
 
+# =========================================================
+# argparse: train or test 모드 선택
+# =========================================================
+parser = argparse.ArgumentParser()
+parser.add_argument("--mode", type=str, default="train",
+                    choices=["train", "test"],
+                    help="train 또는 test 모드 선택")
+parser.add_argument("--episodes", type=int, default=2000,
+                    help="총 episode 수")
+parser.add_argument("--test-episodes", type=int, default=20,
+                    help="test 모드에서 평가할 episode 수")
+args = parser.parse_args()
+
+
+# =========================================================
+# run_epoch: 자동차 RL 같은 구조
+# =========================================================
+def run_epoch(env, agent, max_episodes, max_steps, train=True):
+    """train=True → 학습 모드
+       train=False → 평가 모드 (deterministic, noise 없음)"""
+
+    reward_history = []
+    critic_loss_history = []
+    actor_loss_history = []
+
+    # MuJoCo Viewer 실행
+    viewer_window = mujoco.viewer.launch_passive(env.model, env.data)
+    print("MuJoCo Viewer launched.")
+
+    for episode in range(max_episodes):
+
+        state = env.reset()
+        agent.reset_noise()
+        episode_reward = 0.0
+
+        print(f"\n===== {'TRAIN' if train else 'TEST'} Episode {episode} =====")
+
+        for step in range(max_steps):
+
+            # viewer 닫으면 종료
+            if not viewer_window.is_running():
+                viewer_window.close()
+                return reward_history, critic_loss_history, actor_loss_history
+
+            # -----------------------
+            # action 선택
+            # -----------------------
+            if train:
+                # OU noise 포함 → 학습 exploration
+                action = agent.act(state)
+            else:
+                # test mode → deterministic
+                action = agent.act_no_noise(state)
+
+            # -----------------------
+            # step
+            # -----------------------
+            next_state, reward, done, _ = env.step(action)
+
+            episode_reward += reward
+
+            if train:
+                agent.remember(state, action, reward, next_state, done)
+                critic_loss, actor_loss = agent.train()
+                if critic_loss is not None:
+                    critic_loss_history.append(critic_loss)
+                    global_step = len(critic_loss_history)
+
+                    with open("actor_critic_loss.csv", "a", newline="") as f:
+                        writer = csv.writer(f)
+                        writer.writerow([global_step, critic_loss, actor_loss])
+
+                    actor_loss_history.append(actor_loss)
+
+            state = next_state
+
+            viewer_window.sync()
+
+            if done:
+                break
+
+        reward_history.append(episode_reward)
+        with open("reward.csv", "a", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([episode, episode_reward])
+
+
+        # -----------------------
+        # train 모드에서만 모델 저장
+        # -----------------------
+        if train:
+            print(
+                f"[TRAIN Episode {episode}] Reward: {episode_reward:.2f}, Steps: {step}, "
+                f"CriticLoss: {critic_loss}, ActorLoss: {actor_loss}"
+            )
+
+            agent.save(
+                actor_path="saved_models/actor.weights.h5",
+                critic_path="saved_models/critic.weights.h5"
+            )
+            print("[INFO] Model saved.")
+
+        else:
+            print(
+                f"[TEST Episode {episode}] Reward: {episode_reward:.2f}, Steps: {step}"
+            )
+
+    viewer_window.close()
+
+    return reward_history, critic_loss_history, actor_loss_history
+
+
+# =========================================================
+# Main
+# =========================================================
 def main():
-    # ===========================
-    # 1) 환경 생성
-    # ===========================
-    env = AliengoEnv(model_path="aliengo/aliengo.xml")
 
-    # 상태/행동 차원
+    # CSV 파일 초기화
+    if args.mode == "train":
+        # episode reward 저장 파일
+        with open("reward.csv", "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["episode", "reward"])
+
+        # step별 actor/critic loss 저장 파일
+        with open("actor_critic_loss.csv", "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["global_step", "critic_loss", "actor_loss"])
+
+    # 환경 생성
+    env = AliengoEnv(model_path="aliengo/aliengo.xml")
     state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
 
@@ -24,9 +148,7 @@ def main():
     print(" - State dimension :", state_dim)
     print(" - Action dimension:", action_dim)
 
-    # ===========================
-    # 2) DDPG Agent 초기화
-    # ===========================
+    # DDPG agent 생성
     agent = DDPGAgent(
         state_dim=state_dim,
         action_dim=action_dim,
@@ -36,144 +158,66 @@ def main():
         critic_lr=1e-3,
         buffer_size=100000,
         batch_size=128,
-        max_action=1.0,   # action_space가 [-1,1]이므로 그대로 사용
+        max_action=1.0,
     )
-    print("DDPG Agent initialized.")
 
-    # ==========================
-    # Mujoco viewer 실행
-    # ==========================
-    viewer = mujoco.viewer.launch_passive(env.model, env.data)
-    print("MuJoCo Viewer launched.")
+    # -------------------------
+    # TEST 모드 → 모델 로드
+    # -------------------------
+    if args.mode == "test":
+        agent.load("saved_models/actor.weights.h5",
+                   "saved_models/critic.weights.h5")
 
-    # ===========================
-    # 3) Episode Loop 관리
-    # ===========================
-    max_episodes = 20000
     max_steps = env.max_episode_steps
-    reward_history = []
-    critic_loss_history = []
-    actor_loss_history = []
 
-    for episode in range(max_episodes):
-
-        state = env.reset()
-        agent.reset_noise()
-        episode_reward = 0.0
-
-        print(f"===== Episode {episode} =====")
-
-        for step in range(max_steps):
-
-            if step < 10:
-                action = np.zeros(action_dim)
-            else:
-                action = agent.act(state)
-
-            # viewer 종료 버튼 누르면 학습 중단
-            if not viewer.is_running():
-                print("Viewer closed — training stopped.")
-                viewer.close()
-                return
-
-            # --------------------------
-            # 환경에서 step 수행
-            # --------------------------
-            next_state, reward, done, _ = env.step(action)
-
-            # --------------------------
-            # transition 저장 (Replay Buffer)
-            # --------------------------
-            agent.remember(state, action, reward, next_state, done)
-
-            # --------------------------
-            # DDPG 학습
-            # --------------------------
-            critic_loss, actor_loss = agent.train()
-
-            if critic_loss is not None:
-                critic_loss_history.append(critic_loss)
-                actor_loss_history.append(actor_loss)
-
-            # --------------------------
-            # 상태 업데이트
-            # --------------------------
-            state = next_state
-            episode_reward += reward
-
-            # ===========================
-            # Viewer 업데이트
-            # ===========================
-            viewer.sync()
-
-            # --------------------------
-            # 종료 조건
-            # --------------------------
-            if done:
-                break
-
-
-        reward_history.append(episode_reward)
-
-
-        print(
-            f"[Episode {episode}] Reward: {episode_reward:.2f}, "
-            f"CriticLoss: {critic_loss}, ActorLoss: {actor_loss}"
-        )
-        print("[INFO] Saving model...")
-        agent.save(
-            actor_path="saved_models/actor.weights.h5",
-            critic_path="saved_models/critic.weights.h5"
+    # -------------------------
+    # TRAIN MODE
+    # -------------------------
+    if args.mode == "train":
+        reward_history, critic_loss_history, actor_loss_history = run_epoch(
+            env,
+            agent,
+            max_episodes=args.episodes,
+            max_steps=max_steps,
+            train=True
         )
 
-        print("[INFO] Model saved.")
+        # 학습 완료 후 plot 저장
+        plt.figure(figsize=(10, 5))
+        plt.plot(reward_history)
+        plt.title("Training Reward")
+        plt.savefig("training_reward.png")
+        plt.close()
 
+        plt.figure(figsize=(10, 5))
+        plt.plot(critic_loss_history)
+        plt.title("Critic Loss")
+        plt.savefig("critic_loss.png")
+        plt.close()
 
-    # ===========================
-    # Viewer 종료
-    # ===========================
-    viewer.close()
+        plt.figure(figsize=(10, 5))
+        plt.plot(actor_loss_history)
+        plt.title("Actor Loss")
+        plt.savefig("actor_loss.png")
+        plt.close()
 
-    # --------------------------
-    # 학습 리워드 저장
-    # --------------------------
-    np.save("reward_history.npy", reward_history)
+    # -------------------------
+    # TEST MODE
+    # -------------------------
+    elif args.mode == "test":
+        reward_history, _, _ = run_epoch(
+            env,
+            agent,
+            max_episodes=args.test_episodes,
+            max_steps=max_steps,
+            train=False
+        )
 
-    # ==================================================
-    # 4) 학습 결과 Plot
-    # ==================================================
+        print("\n========== TEST RESULTS ==========")
+        print("Episode Rewards:", reward_history)
+        print("Average Reward :", np.mean(reward_history))
+        print("==================================")
 
-    # ----- Reward -----
-    plt.figure(figsize=(10,5))
-    plt.plot(reward_history, label="Episode Reward")
-    plt.xlabel("Episode")
-    plt.ylabel("Reward")
-    plt.title("Reward per Episode")
-    plt.grid(True)
-    plt.legend()
-    plt.show()
-
-    # ----- Critic Loss -----
-    plt.figure(figsize=(10,5))
-    plt.plot(critic_loss_history, label="Critic Loss", color='r')
-    plt.xlabel("Training Step")
-    plt.ylabel("Loss")
-    plt.title("Critic Loss over Training")
-    plt.grid(True)
-    plt.legend()
-    plt.show()
-
-    # ----- Actor Loss -----
-    plt.figure(figsize=(10,5))
-    plt.plot(actor_loss_history, label="Actor Loss", color='g')
-    plt.xlabel("Training Step")
-    plt.ylabel("Loss")
-    plt.title("Actor Loss over Training")
-    plt.grid(True)
-    plt.legend()
-    plt.show()
-
-    
 
 if __name__ == "__main__":
     main()

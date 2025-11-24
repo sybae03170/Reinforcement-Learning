@@ -25,7 +25,7 @@ class AliengoEnv(gym.Env):
             for name in self.foot_geom_names
         ]
         # ========== Episode Length Termination ==========
-        self.max_episode_steps = 1500     # ≈ 1500 * dt(0.001) = 1.5초
+        self.max_episode_steps = 3000     # ≈ 1500 * dt(0.001) = 1.5초
         self.step_counter = 0
         # ================================================
 
@@ -133,38 +133,6 @@ class AliengoEnv(gym.Env):
 
     #     return obs
 
-    # def reset(self):
-    #     mujoco.mj_resetData(self.model, self.data)
-
-    #     # --- 1. Base position & orientation ---
-    #     self.data.qpos[0:3] = [0.0, 0.0, 0.30]  # height
-    #     self.data.qpos[3:7] = [1.0, 0.0, 0.0, 0.0]  # quaternion
-
-    #     # --- 2. Stable joint configuration (Aliengo standard) ---
-    #     # hip, thigh, calf for each leg
-    #     init_joint_angles = np.array([
-    #         0.0,   0.9,  -1.8,    # FL
-    #         0.0,   0.9,  -1.8,    # FR
-    #         0.0,   0.9,  -1.8,    # RL
-    #         0.0,   0.9,  -1.8     # RR
-    #     ])
-    #     self.data.qpos[7:7+self.num_joints] = init_joint_angles
-
-    #     # --- 3. Zero velocity ---
-    #     self.data.qvel[:] = 0.0
-
-    #     # --- 4. Physics forward ---
-    #     mujoco.mj_forward(self.model, self.data)
-
-    #     # --- 5. Warm-up integration (settling) ---
-    #     for _ in range(50):
-    #         mujoco.mj_step(self.model, self.data)
-
-    #     self.step_counter = 0
-    #     obs = self._get_obs()
-    #     self.last_action = np.zeros(self.num_joints)
-    #     return obs
-
     def reset(self):
         # -----------------------------
         # 0) 완전 초기화 (MuJoCo 공식)
@@ -177,27 +145,27 @@ class AliengoEnv(gym.Env):
         # -----------------------------
         # 1) Base 초기 위치 정밀 설정
         # -----------------------------
-        self.data.qpos[:] = 0.0
+        # self.data.qpos[:] = 0.0
         self.data.qvel[:] = 0.0
 
         # Aliengo base 기본 높이
         # 너무 낮으면 발이 몸에 박힘 / 너무 높으면 self-collision으로 걸림
-        base_z = 0.29
+        base_z = 0.38
         self.data.qpos[0:3] = [0.0, 0.0, base_z]         # x,y,z
         self.data.qpos[3:7] = [1.0, 0.0, 0.0, 0.0]       # w,x,y,z quaternion
 
         # -----------------------------
         # 2) 정확한 standing pose 관절 설정
         # -----------------------------
-        # ★ 절대 0.9, -1.8 쓰지 마세요 — Aliengo/MuJoCo 기본 mesh와 self-collision 발생합니다.
         init_joint_angles = np.array([
-            0.0,  0.8, -1.5,    # FL
-            0.0,  0.8, -1.5,    # FR
-            0.0,  0.8, -1.5,    # RL
-            0.0,  0.8, -1.5     # RR
+            0.0,  0.9, -1.8,    # FL
+            0.0,  0.9, -1.8,    # FR
+            0.0,  0.9, -1.8,    # RL
+            0.0,  0.9, -1.8     # RR
         ])
 
         self.data.qpos[7:7+self.num_joints] = init_joint_angles
+        self.q_des = init_joint_angles.copy()
 
         # -----------------------------
         # 3) qpos/qvel 다 설정한 후 → 반드시 mj_forward()
@@ -210,19 +178,21 @@ class AliengoEnv(gym.Env):
         # -----------------------------
 
         # Warm-up phase: Stabilizing PD control during settling
-        Kp = 50.0
-        Kd = 2.0
-        q_des = init_joint_angles.copy()
+        # Kp = 30.0
+        # Kd = 1.5
+        # q_des = init_joint_angles.copy()
 
-        for _ in range(100):
-            q  = self.data.qpos[7:7+self.num_joints]
-            qd = self.data.qvel[6:6+self.num_joints]
+        # for _ in range(100):
+        #     q  = self.data.qpos[7:7+self.num_joints]
+        #     qd = self.data.qvel[6:6+self.num_joints]
 
-            torque_pd = Kp*(q_des - q) - Kd*qd
-            torque_pd = np.clip(torque_pd, -20, 20)
+        #     torque_pd = Kp*(q_des - q) - Kd*qd
+        #     torque_pd = np.clip(torque_pd, -20, 20)
 
-            self.data.ctrl[:] = torque_pd
-            mujoco.mj_step(self.model, self.data)
+        #     self.data.ctrl[:] = torque_pd
+        #     mujoco.mj_step(self.model, self.data)
+        
+        # self.data.ctrl[:] = 0.0 
 
         # -----------------------------
         # 5) 최종 obs 반환
@@ -230,77 +200,338 @@ class AliengoEnv(gym.Env):
         self.step_counter = 0
         self.last_action = np.zeros(self.num_joints)
         return self._get_obs()
+        
+    # def reset(self):
+    #     # -----------------------------
+    #     # 0) 완전 초기화 (MuJoCo 공식)
+    #     # -----------------------------
+    #     mujoco.mj_resetData(self.model, self.data)
+
+    #     # -----------------------------
+    #     # 1) Base 위치만 수정 (관절각은 XML 기본 자세 유지!)
+    #     # -----------------------------
+    #     # qpos[:] = 0 → 절대 사용 금지!!!
+    #     # XML 기본 pose를 그대로 사용해야 안정적임
+
+    #     # base의 freejoint는 qpos[0:7]
+    #     self.data.qpos[2] = 0.38        # z만 조금 높임
+    #     self.data.qpos[3:7] = [1.0, 0.0, 0.0, 0.0]     # quaternion
+
+    #     # 속도 초기화
+    #     self.data.qvel[:] = 0.0
+
+    #     # -----------------------------
+    #     # 2) forward dynamics (XML 기본자세 확정)
+    #     # -----------------------------
+    #     mujoco.mj_forward(self.model, self.data)
+
+    #     # -----------------------------
+    #     # 3) XML이 제공한 joint 초기각을 q_des로 사용!
+    #     # -----------------------------
+    #     self.q_des = self.data.qpos[7:7+self.num_joints].copy()
+
+    #     # -----------------------------
+    #     # 4) Warm-up PD (기본자세를 기준으로 안정화)
+    #     # -----------------------------
+    #     Kp = 50.0
+    #     Kd = 2.0
+
+    #     for _ in range(100):
+    #         q  = self.data.qpos[7:7+self.num_joints]
+    #         qd = self.data.qvel[6:6+self.num_joints]
+
+    #         torque_pd = Kp*(self.q_des - q) - Kd*qd
+    #         torque_pd = np.clip(torque_pd, -20, 20)
+
+    #         self.data.ctrl[:] = torque_pd
+    #         mujoco.mj_step(self.model, self.data)
+
+    #     self.data.ctrl[:] = 0.0
+
+    #     # -----------------------------
+    #     # 5) obs 반환
+    #     # -----------------------------
+    #     self.step_counter = 0
+    #     self.last_action = np.zeros(self.num_joints)
+    #     return self._get_obs()
+
+    # def reset(self):
+    #     # 0) MuJoCo 기본값으로 완전 초기화
+    #     mujoco.mj_resetData(self.model, self.data)
+
+    #     # 1) qvel만 확실히 0으로 (qpos는 XML qpos0 그대로 사용)
+    #     self.data.qvel[:] = 0.0
+
+    #     # 2) forward dynamics로 일관성 맞추기
+    #     mujoco.mj_forward(self.model, self.data)
+
+    #     # 3) XML이 제공한 joint 초기각을 그대로 q_des로 사용
+    #     #    (qpos[0:7] = free joint, 그 뒤가 관절들)
+    #     self.q_des = self.data.qpos[7:7+self.num_joints].copy()
+
+    #     # 4) 아무 warm-up도 하지 않음 (토크 전혀 안 줌)
+    #     self.data.ctrl[:] = 0.0
+
+    #     # 5) 카운터/기록 초기화
+    #     self.step_counter = 0
+    #     self.last_action = np.zeros(self.num_joints)
+
+    #     return self._get_obs()
+    
+    # def reset(self):
+    #     mujoco.mj_resetData(self.model, self.data)
+
+    #     # XML 기본 포즈에서 base_z만 조금 올림 (예: +0.02)
+    #     self.data.qpos[2] += 0.02         # (XML의 0.6 → 0.62)
+
+    #     self.data.qvel[:] = 0.0
+    #     mujoco.mj_forward(self.model, self.data)
+
+    #     self.q_des = self.data.qpos[7:7+self.num_joints].copy()
+
+    #     self.step_counter = 0
+    #     return self._get_obs()
 
 
 
 
-    # ------------------------------------------------
-    # (3) Step Function (action → physics → reward)
-    # ------------------------------------------------
+    # 일정부분만
     def step(self, action):
-        """
-        행동(action)을 torque로 변환하여 MuJoCo simulation step을 진행하고
-        reward를 계산.
-        """
-        # ---- Action Scaling ----
-        # action: [-1, 1] → 실제 torque 범위로 확장
-        max_torque = 33.5   # Aliengo hip/thigh/calf torque approx
-        torques = action * max_torque
+        q  = self.data.qpos[7:7+self.num_joints]
+        qd = self.data.qvel[6:6+self.num_joints]
+
+        # --- PD torque (초기 자세 유지 용도)
+        Kp = 40.0
+        Kd = 1.5
+        pd_torque = Kp * (self.q_des - q) - Kd * qd
+
+        # --- RL torque
+        max_torque = 20.0       # RL은 너무 큰 힘을 주면 날아감
+        rl_torque = action * max_torque
+
+        # --- 초기 100 step까지만 PD+RL
+        if self.step_counter < 100:
+            alpha = 0.2
+            torques = pd_torque + alpha * rl_torque
+        else:
+            torques = rl_torque   # RL-only
+
+        torques = np.clip(torques, -max_torque, max_torque)
         self.data.ctrl[:] = torques
 
-        # ---- MuJoCo simulate ----
         mujoco.mj_step(self.model, self.data)
-
-        # ============================
-        # DEBUG CONTACT
-        # ============================
-        print("\n[DEBUG CONTACT INFO]")
-        print(f"Number of contacts = {self.data.ncon}")
-        for i in range(4):
-            gid = self.foot_geom_ids[i]
-            print(f" Leg {i}: geom_id={gid}")
-            touching = False
-            for c in range(self.data.ncon):
-                con = self.data.contact[c]
-                if con.geom1 == gid or con.geom2 == gid:
-                    touching = True
-                    print(f"   Contact {c}: geom1={con.geom1}, geom2={con.geom2}, pos={con.pos}")
-            if not touching:
-                print("   No contact")
-
-        # ---- Observation ----
+        # 이하 obs, reward, done 계산은 그대로 유지
         obs = self._get_obs()
-
-        # ---- Reward ----
         reward = self._compute_reward(action)
 
-        # ---- Termination Conditions ----
         done = False
-
         base_z = self.data.qpos[2]
         quat = self.data.xquat[self.base_body_id]
-        w, x, y, z = quat
+        roll, pitch, yaw = self._quat_to_euler(quat)
 
-        # 1) 너무 낮아짐 (무너짐)
         if base_z < 0.18:
             done = True
             reward -= 10.0
 
-        # 2) pitch/roll 너무 큼 (전복)
-        roll, pitch, yaw = self._quat_to_euler(quat)
         if abs(roll) > 0.8 or abs(pitch) > 0.8:
             done = True
             reward -= 10.0
 
-        # 3) episode length 제한
         self.step_counter += 1
         if self.step_counter >= self.max_episode_steps:
             done = True
 
-        # for next slip calculation
         self.last_action = action
-
         return obs, reward, done, {}
+    
+
+    # ------------------------------------------------
+    # (3) Step Function (action → physics → reward)
+    # ------------------------------------------------
+    # def step(self, action):
+    #     q  = self.data.qpos[7:7+self.num_joints]
+    #     qd = self.data.qvel[6:6+self.num_joints]
+
+    #     # 1) PD 제어 (이미 잘 서 있으니 그대로 사용)
+    #     Kp = 40.0
+    #     Kd = 1.5
+    #     pd_torque = Kp * (self.q_des - q) - Kd * qd
+
+    #     # 2) RL 토크 (actor 출력: [-1,1] → 실제 토크)
+    #     max_torque = 33.5
+    #     rl_torque = action * max_torque
+    #     # rl_torque = np.zeros_like(pd_torque)
+
+    #     # ---------------------------------------------
+    #     # 5000 step 동안 RL 비활성화
+    #     # ---------------------------------------------
+    #     # if self.step_counter < 100:
+    #     #     rl_torque = np.zeros_like(rl_torque)
+    #     # # ---------------------------------------------
+
+    #     # 3) PD + RL residual 합성
+    #     #    alpha는 RL 비중. 처음엔 작게(예: 0.3) 두는 게 안전.
+    #     alpha = 0.3
+    #     torques = pd_torque + alpha * rl_torque
+    #     # torques = pd_torque
+
+
+    #     # print("[DEBUG] PD torque:", pd_torque)
+    #     # print("[DEBUG] RL torque:", rl_torque)
+    #     # print("[DEBUG] Combined torque:", torques)
+
+    #     # 4) 토크 클램프
+    #     torques = np.clip(torques, -max_torque, max_torque)
+    #     self.data.ctrl[:] = torques
+
+    #     # ---- MuJoCo simulate ----
+    #     mujoco.mj_step(self.model, self.data)
+
+    #     # 이하 obs, reward, done 계산은 그대로 유지
+    #     obs = self._get_obs()
+    #     reward = self._compute_reward(action)
+
+    #     done = False
+    #     base_z = self.data.qpos[2]
+    #     quat = self.data.xquat[self.base_body_id]
+    #     roll, pitch, yaw = self._quat_to_euler(quat)
+
+    #     if base_z < 0.18:
+    #         done = True
+    #         reward -= 10.0
+
+    #     if abs(roll) > 0.8 or abs(pitch) > 0.8:
+    #         done = True
+    #         reward -= 10.0
+
+    #     self.step_counter += 1
+    #     if self.step_counter >= self.max_episode_steps:
+    #         done = True
+
+    #     self.last_action = action
+    #     return obs, reward, done, {}
+    
+
+#####step()에 대해 PD 제어 확인
+    # def step(self, action):
+    #     """
+    #     행동(action)을 torque로 변환하여 MuJoCo simulation step을 진행하고
+    #     reward를 계산.
+    #     """
+    #     # ---- Action Scaling ----
+    #     # action: [-1, 1] → 실제 torque 범위로 확장
+    #     q  = self.data.qpos[7:7+self.num_joints]
+    #     qd = self.data.qvel[6:6+self.num_joints]
+
+    #     Kp = 40.0
+    #     Kd = 1.5
+    #     pd_torque = Kp * (self.q_des - q) - Kd * qd
+        
+    #     max_torque = 33.5   # Aliengo hip/thigh/calf torque approx
+    #     # rl_torque = action * max_torque
+        
+    #     # torques = rl_torque + pd_torque
+    #     torques = pd_torque
+    #     torques = np.clip(torques, -33.5, 33.5)
+
+    #     self.data.ctrl[:] = torques
+
+    #     # ---- MuJoCo simulate ----
+    #     mujoco.mj_step(self.model, self.data)
+    #     self.step_counter += 1
+
+    #     # observation
+    #     obs = self._get_obs()
+
+    #     # reward off for PD-only test
+    #     reward = 0.0
+
+    #     # simple done condition
+    #     done = False
+    #     if self.step_counter >= self.max_episode_steps:
+    #         done = True
+
+    #     return obs, reward, done, {}
+
+
+    #     # ============================
+    #     # DEBUG CONTACT
+    #     # ============================
+    #     # print("\n[DEBUG CONTACT INFO]")
+    #     # print(f"Number of contacts = {self.data.ncon}")
+    #     # for i in range(4):
+    #     #     gid = self.foot_geom_ids[i]
+    #     #     print(f" Leg {i}: geom_id={gid}")
+    #     #     touching = False
+    #     #     for c in range(self.data.ncon):
+    #     #         con = self.data.contact[c]
+    #     #         if con.geom1 == gid or con.geom2 == gid:
+    #     #             touching = True
+    #     #             print(f"   Contact {c}: geom1={con.geom1}, geom2={con.geom2}, pos={con.pos}")
+    #     #     if not touching:
+    #     #         print("   No contact")
+
+    #     # ---- Observation ----
+    #     obs = self._get_obs()
+
+    #     # ---- Reward ----
+    #     reward = self._compute_reward(action)
+
+    #     # ---- Termination Conditions ----
+    #     done = False
+
+    #     base_z = self.data.qpos[2]
+    #     quat = self.data.xquat[self.base_body_id]
+    #     w, x, y, z = quat
+
+    #     # 1) 너무 낮아짐 (무너짐)
+    #     if base_z < 0.18:
+    #         done = True
+    #         reward -= 10.0
+
+    #     # 2) pitch/roll 너무 큼 (전복)
+    #     roll, pitch, yaw = self._quat_to_euler(quat)
+    #     if abs(roll) > 0.8 or abs(pitch) > 0.8:
+    #         done = True
+    #         reward -= 10.0
+
+    #     # 3) episode length 제한
+    #     self.step_counter += 1
+    #     if self.step_counter >= self.max_episode_steps:
+    #         done = True
+
+    #     # for next slip calculation
+    #     self.last_action = action
+
+    #     return obs, reward, done, {}
+
+    # def step(self, action):
+    #     # ---- 아무 토크도 안 줌: 순수 물리만 확인 ----
+    #     self.data.ctrl[:] = 0.0
+    #     mujoco.mj_step(self.model, self.data)
+
+    #     obs = self._get_obs()
+    #     reward = self._compute_reward(action)  # 일단은 그대로 둬도 되고, 테스트만이면 0으로 둬도 됨
+
+    #     done = False
+    #     base_z = self.data.qpos[2]
+    #     quat = self.data.xquat[self.base_body_id]
+    #     roll, pitch, yaw = self._quat_to_euler(quat)
+
+    #     if base_z < 0.18:
+    #         done = True
+    #         reward -= 10.0
+    #     if abs(roll) > 0.8 or abs(pitch) > 0.8:
+    #         done = True
+    #         reward -= 10.0
+
+    #     self.step_counter += 1
+    #     if self.step_counter >= self.max_episode_steps:
+    #         done = True
+
+    #     self.last_action = action
+    #     return obs, reward, done, {}
+
 
     # ================================================================
     # (4) Reward Function — 6개 항목 준수

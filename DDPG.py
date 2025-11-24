@@ -46,7 +46,7 @@ class ReplayBuffer:
 # OU Noise (for continuous exploration)
 # ============================================
 class OUNoise:
-    def __init__(self, dim, theta=0.15, sigma=0.2, mu=0.0):
+    def __init__(self, dim, theta=0.15, sigma=0.1, mu=0.0):
         self.dim = dim
         self.theta = theta
         self.sigma = sigma
@@ -75,19 +75,39 @@ def build_actor(state_dim, action_dim):
     return model
 
 
+# def build_critic(state_dim, action_dim):
+#     """Q(s,a) → scalar"""
+#     state_input = keras.Input(shape=(state_dim,), name="state")
+#     action_input = keras.Input(shape=(action_dim,), name="action")
+
+#     x_s = layers.Dense(400, activation="relu")(state_input)
+#     x = layers.Dense(300, activation=None)(x_s)
+#     a = layers.Dense(300, activation=None)(action_input)
+#     x = layers.Activation("relu")(x + a)
+#     q = layers.Dense(1, activation=None)(x)
+
+#     model = keras.Model(inputs=[state_input, action_input], outputs=q, name="critic")
+#     return model
+
 def build_critic(state_dim, action_dim):
-    """Q(s,a) → scalar"""
     state_input = keras.Input(shape=(state_dim,), name="state")
     action_input = keras.Input(shape=(action_dim,), name="action")
 
+    # 상태 pathway
     x_s = layers.Dense(400, activation="relu")(state_input)
-    x = layers.Dense(300, activation=None)(x_s)
-    a = layers.Dense(300, activation=None)(action_input)
-    x = layers.Activation("relu")(x + a)
-    q = layers.Dense(1, activation=None)(x)
+
+    # 조인트 부분
+    x = layers.Dense(300)(x_s)
+    a = layers.Dense(300)(action_input)
+
+    # Activation("relu") 금지 → 대신 ReLU() 사용
+    x = layers.ReLU()(x + a)
+
+    q = layers.Dense(1)(x)
 
     model = keras.Model(inputs=[state_input, action_input], outputs=q, name="critic")
     return model
+
 
 
 # ============================================
@@ -178,7 +198,7 @@ class DDPGAgent:
     # ----------------------------------------
     # One training step (DDPG update)
     # ----------------------------------------
-    @tf.function
+    # @tf.function
     def _train_step(self, states, actions, rewards, next_states, dones):
         # Critic update
         with tf.GradientTape() as tape_c:
